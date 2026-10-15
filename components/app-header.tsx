@@ -14,7 +14,7 @@ export function AppHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <header className="relative z-50 flex items-center justify-between px-6 py-4">
+    <header className="relative z-50 flex items-center justify-between border-0 bg-transparent px-6 py-4 shadow-none">
       <BrandMark href={homeHref} />
       {children ? (
         <div className="flex items-center gap-3">{children}</div>

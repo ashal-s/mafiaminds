@@ -191,11 +191,15 @@ textarea:focus {
   transform: translateY(1px);
 }
 
-/* Glass Header Styling */
+/* Top bars: fully clear — no glass, border, or shadow */
 header {
+  background: transparent !important;
   background-color: transparent !important;
+  background-image: none !important;
   backdrop-filter: none !important;
-  border-bottom: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 0 !important;
+  border-bottom: 0 !important;
   box-shadow: none !important;
 }
 
@@ -324,7 +328,7 @@ tbody tr:hover {
 }
 
 @layer base {
-  * {
+  *:not(header) {
     @apply border-border outline-ring/50;
   }
   body {

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { BrandMark } from "@/components/brand-mark";
+import { AppHeader } from "@/components/app-header";
 
 export const metadata: Metadata = {
   title: "About · Mafia Minds",
@@ -72,23 +72,20 @@ export default function AboutPage() {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(220,38,38,0.14),transparent_42%)]"
       />
 
-      <header className="relative z-10 flex items-center justify-between gap-4 px-5 py-4 sm:px-8 lg:px-10">
-        <BrandMark href="/" />
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <Link
-            href="/login"
-            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/signup"
-            className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-red-500"
-          >
-            Get started
-          </Link>
-        </div>
-      </header>
+      <AppHeader homeHref="/">
+        <Link
+          href="/login"
+          className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
+        >
+          Log in
+        </Link>
+        <Link
+          href="/signup"
+          className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-red-500"
+        >
+          Get started
+        </Link>
+      </AppHeader>
 
       <main className="relative z-10 mx-auto w-full max-w-3xl flex-1 px-5 py-12 sm:px-8 sm:py-16 lg:px-10">
         <p className="text-xs font-medium uppercase tracking-[0.2em] text-red-400/80">
