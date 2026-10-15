@@ -798,6 +798,7 @@ export type Database = {
           allowed: boolean
           retry_after_seconds: number
         }[]
+      }
       complete_phase_and_open_successor: {
         Args: {
           p_current_phase_id: string

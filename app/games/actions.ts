@@ -22,6 +22,7 @@ import {
   type PhaseType,
 } from "@/lib/game-engine";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import {
   assertAuthenticated,
   assertCanAccessChatRoom,
   assertCanVote,
@@ -502,6 +503,8 @@ export async function joinGameById(formData: FormData): Promise<void> {
       redirect(`/join/${code}?error=${encodeURIComponent(joinLimit.message)}`);
     }
     redirect("/dashboard");
+  }
+
   const { data: game } = await supabase
     .from("games")
     .select("status")
