@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUsers } from "@/lib/push/send";
-import type { Json } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 import {
   DEFAULT_HEALER_SELF_HEALS,
   DEFAULT_SNIPER_BULLETS,
@@ -22,6 +22,17 @@ import {
   type PhaseType,
 } from "@/lib/game-engine";
 import { consumeRateLimit } from "@/lib/rate-limit";
+  assertAuthenticated,
+  assertCanAccessChatRoom,
+  assertCanVote,
+  assertCurrentPhase,
+  assertGameActive,
+  assertHost,
+  assertPlayerAlive,
+  assertPlayerInGame,
+  assertRoleCanAct,
+  permissionMessage,
+} from "@/lib/game-permissions";
 
 export type FormState = { error?: string };
 
@@ -233,6 +244,7 @@ async function requirePlayer() {
   if (!user) {
     redirect("/login");
   }
+  assertAuthenticated(user);
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -252,6 +264,7 @@ export async function createGame(
   formData: FormData,
 ): Promise<FormState> {
   const { supabase, user } = await requirePlayer();
+  assertAuthenticated(user);
 
   const rawName = formData.get("name");
   const name =
@@ -489,6 +502,17 @@ export async function joinGameById(formData: FormData): Promise<void> {
       redirect(`/join/${code}?error=${encodeURIComponent(joinLimit.message)}`);
     }
     redirect("/dashboard");
+  const { data: game } = await supabase
+    .from("games")
+    .select("status")
+    .eq("id", gameId)
+    .maybeSingle();
+  if (!game || game.status !== "lobby") {
+    redirect(
+      typeof code === "string"
+        ? `/join/${code}?error=game_unavailable`
+        : "/dashboard",
+    );
   }
 
   const { error } = await supabase
@@ -509,6 +533,18 @@ export async function setReady(formData: FormData): Promise<void> {
 
   const ready = formData.get("ready") === "true";
 
+  const { data: player } = await supabase
+    .from("game_players")
+    .select("user_id, status")
+    .eq("game_id", gameId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  try {
+    assertPlayerInGame(player);
+  } catch {
+    redirect(`/games/${gameId}?error=not_authorized`);
+  }
+
   await supabase
     .from("game_players")
     .update({ is_ready: ready })
@@ -519,10 +555,21 @@ export async function setReady(formData: FormData): Promise<void> {
 }
 
 export async function removePlayer(formData: FormData): Promise<void> {
-  const { supabase } = await requirePlayer();
+  const { supabase, user } = await requirePlayer();
   const gameId = formData.get("game_id");
   const playerId = formData.get("player_id");
   if (typeof gameId !== "string" || typeof playerId !== "string") return;
+
+  const { data: game } = await supabase
+    .from("games")
+    .select("host_id")
+    .eq("id", gameId)
+    .maybeSingle();
+  try {
+    assertHost(game, user.id);
+  } catch {
+    redirect(`/games/${gameId}?error=not_authorized`);
+  }
 
   // RLS restricts deletes to the host; never remove the host's own row.
   await supabase
@@ -554,7 +601,9 @@ export async function startGame(formData: FormData): Promise<void> {
     .eq("id", gameId)
     .maybeSingle();
 
-  if (!game || game.host_id !== user.id) {
+  try {
+    assertHost(game, user.id);
+  } catch {
     redirect(`/games/${gameId}`);
   }
   if (game.status !== "lobby") {
@@ -750,24 +799,82 @@ export async function startGame(formData: FormData): Promise<void> {
 async function transitionPhase(
   supabase: DbClient,
   gameId: string,
-): Promise<{ ended: boolean; error?: string }> {
+  expectedPhaseId?: string,
+): Promise<{ ended: boolean; skipped?: boolean; error?: string }> {
+  const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const { data: current } = await supabase
     .from("game_phases")
-    .select("id, phase_number, phase_type, day_number")
+    .select(
+      "id, phase_number, phase_type, day_number, status, processing_started_at",
+    )
     .eq("game_id", gameId)
-    .eq("status", "active")
+    .or(
+      `status.eq.active,and(status.eq.processing,processing_started_at.lt.${staleBefore})`,
+    )
     .order("phase_number", { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  if (!current || (expectedPhaseId && current.id !== expectedPhaseId)) {
+    return { ended: false, skipped: true };
+  }
+
+  // Claim the phase before resolving any actions. The conditional update is an
+  // atomic compare-and-set: overlapping cron invocations (or a host clicking
+  // advance at the same time) cannot both process the same phase.
+  let claimQuery = supabase
+    .from("game_phases")
+    .update({
+      status: "processing",
+      processing_started_at: new Date().toISOString(),
+    })
+    .eq("id", current.id);
+  claimQuery =
+    current.status === "processing"
+      ? claimQuery
+          .eq("status", "processing")
+          .lt("processing_started_at", staleBefore)
+      : claimQuery.eq("status", "active");
+  const { data: claimed, error: claimError } = await claimQuery
+    .select("id")
+    .maybeSingle();
+
+  if (claimError) return { ended: false, error: claimError.message };
+  if (!claimed) return { ended: false, skipped: true };
+
+  try {
+    return await finishPhaseTransition(supabase, gameId, current);
+  } catch (error) {
+    // Supabase helpers normally return errors, but fetches and notifications
+    // can throw. Release the claim on those ordinary failures; a hard process
+    // termination is recovered via the stale timestamp above.
+    await supabase
+      .from("game_phases")
+      .update({ status: "active", processing_started_at: null })
+      .eq("id", current.id)
+      .eq("status", "processing");
+    throw error;
+  }
+}
+
+async function finishPhaseTransition(
+  supabase: DbClient,
+  gameId: string,
+  current: {
+    id: string;
+    phase_number: number;
+    phase_type: Database["public"]["Enums"]["game_phase_type"];
+    day_number: number;
+  },
+): Promise<{ ended: boolean; error?: string }> {
   const now = new Date();
-  const currentType = (current?.phase_type ?? "results") as PhaseType;
-  const currentDay = current?.day_number ?? 1;
+  const currentType = current.phase_type as PhaseType;
+  const currentDay = current.day_number;
 
   const nextType = nextPhase(currentType);
   // A full cycle completes when results rolls back to night — bump the day.
   const nextDay = currentType === "results" ? currentDay + 1 : currentDay;
-  const nextNumber = (current?.phase_number ?? 0) + 1;
+  const nextNumber = current.phase_number + 1;
   const endsAt = new Date(
     now.getTime() + PHASE_DURATIONS_SECONDS[nextType] * 1000,
   );
@@ -791,13 +898,6 @@ async function transitionPhase(
     }
   }
 
-  if (current) {
-    await supabase
-      .from("game_phases")
-      .update({ status: "completed", ended_at: now.toISOString() })
-      .eq("id", current.id);
-  }
-
   const { data: next, error: nextError } = await supabase
     .from("game_phases")
     .insert({
@@ -813,8 +913,21 @@ async function transitionPhase(
     .single();
 
   if (nextError || !next) {
-    return { ended: false, error: nextError?.message ?? "phase" };
+    return {
+      ended: false,
+      error: nextError?.message ?? "Phase claim was lost before completion.",
+    };
   }
+
+  await supabase
+    .from("game_phases")
+    .update({
+      status: "completed",
+      ended_at: now.toISOString(),
+      processing_started_at: null,
+    })
+    .eq("id", current.id)
+    .eq("status", "processing");
 
   await supabase
     .from("games")
@@ -858,7 +971,10 @@ export async function advancePhase(formData: FormData): Promise<void> {
     .maybeSingle();
 
   // Only the host can advance, and only while the game is running.
-  if (!game || game.host_id !== user.id || game.status !== "in_progress") {
+  try {
+    assertHost(game, user.id);
+    assertGameActive(game, { allowPaused: true });
+  } catch {
     redirect(`/games/${gameId}`);
   }
 
@@ -898,7 +1014,7 @@ export async function advancePhase(formData: FormData): Promise<void> {
 /**
  * Server-side auto-advance: finds every in-progress, non-paused game whose
  * active phase has passed its scheduled `ends_at` and advances it. Driven by the
- * Supabase pg_cron route (`/api/cron/advance-phases`) so games keep moving even when
+ * Vercel Cron route (`/api/cron/advance-phases`) so games keep moving even when
  * every player's phone is locked and their PWA is suspended.
  *
  * Runs with the service-role client (bypasses RLS) since there is no logged-in
@@ -910,34 +1026,47 @@ export async function autoAdvanceExpiredPhases(): Promise<{
   scanned: number;
   advanced: number;
   ended: number;
+  skipped: number;
   errors: number;
 }> {
   const admin = createAdminClient();
   const nowIso = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
   const { data: rows, error } = await admin
     .from("game_phases")
-    .select("game_id, ends_at, game:games!inner(status, is_paused)")
-    .eq("status", "active")
+    .select("id, game_id, ends_at, game:games!inner(status, is_paused)")
+    .or(
+      `status.eq.active,and(status.eq.processing,processing_started_at.lt.${staleBefore})`,
+    )
     .not("ends_at", "is", null)
     .lte("ends_at", nowIso)
     .eq("game.status", "in_progress")
     .eq("game.is_paused", false);
 
   if (error || !rows) {
-    return { scanned: 0, advanced: 0, ended: 0, errors: error ? 1 : 0 };
+    return {
+      scanned: 0,
+      advanced: 0,
+      ended: 0,
+      skipped: 0,
+      errors: error ? 1 : 0,
+    };
   }
-
-  // De-dupe defensively in case a game somehow has more than one active phase.
-  const gameIds = Array.from(new Set(rows.map((r) => r.game_id)));
 
   let advanced = 0;
   let ended = 0;
+  let skipped = 0;
   let errors = 0;
-  for (const gameId of gameIds) {
+  for (const phase of rows) {
     try {
-      const result = await transitionPhase(admin as unknown as DbClient, gameId);
+      const result = await transitionPhase(
+        admin as unknown as DbClient,
+        phase.game_id,
+        phase.id,
+      );
       if (result.error) errors++;
+      else if (result.skipped) skipped++;
       else if (result.ended) ended++;
       else advanced++;
     } catch {
@@ -945,7 +1074,7 @@ export async function autoAdvanceExpiredPhases(): Promise<{
     }
   }
 
-  return { scanned: gameIds.length, advanced, ended, errors };
+  return { scanned: rows.length, advanced, ended, skipped, errors };
 }
 
 export async function submitNightAction(
@@ -971,13 +1100,11 @@ export async function submitNightAction(
     .select("id, status, settings, is_paused")
     .eq("id", gameId)
     .maybeSingle();
-  if (!game || game.status !== "in_progress") {
-    return { error: "This game is not in progress." };
+  try {
+    assertGameActive(game);
+  } catch (error) {
+    return { error: permissionMessage(error) ?? "You cannot submit this action." };
   }
-  if (game.is_paused) {
-    return { error: "The game is paused by the host." };
-  }
-
   // The active phase must be night.
   const { data: phase } = await supabase
     .from("game_phases")
@@ -987,9 +1114,12 @@ export async function submitNightAction(
     .order("phase_number", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (!phase || phase.phase_type !== "night") {
-    return { error: "You can only act during the night." };
+  try {
+    assertCurrentPhase(phase?.phase_type ?? null, "night");
+  } catch (error) {
+    return { error: permissionMessage(error) ?? "You cannot submit this action." };
   }
+  if (!phase) return { error: "This action is only available during night." };
 
   // The actor must be a living member of this game.
   const { data: me } = await supabase
@@ -998,8 +1128,11 @@ export async function submitNightAction(
     .eq("game_id", gameId)
     .eq("user_id", user.id)
     .maybeSingle();
-  if (!me) return { error: "You are not in this game." };
-  if (me.status !== "alive") return { error: "Dead players cannot act." };
+  try {
+    assertPlayerAlive(me);
+  } catch (error) {
+    return { error: permissionMessage(error) ?? "You cannot submit this action." };
+  }
 
   const { data: roleRow } = await supabase
     .from("game_player_roles")
@@ -1009,9 +1142,12 @@ export async function submitNightAction(
     .maybeSingle();
   const roleKey = one(roleRow?.role)?.key ?? null;
   const descriptor = nightActionForRole(roleKey, roleRow?.alignment ?? null);
-  if (!descriptor) {
-    return { error: "Your role has no night action." };
+  try {
+    assertRoleCanAct(descriptor?.type ?? null);
+  } catch (error) {
+    return { error: permissionMessage(error) ?? "You cannot submit this action." };
   }
+  if (!descriptor) return { error: "Your role cannot perform this action." };
 
   const targetId =
     typeof rawTarget === "string" && rawTarget && rawTarget !== "skip"
@@ -1121,13 +1257,11 @@ export async function submitVote(
     .select("id, status, is_paused")
     .eq("id", gameId)
     .maybeSingle();
-  if (!game || game.status !== "in_progress") {
-    return { error: "This game is not in progress." };
+  try {
+    assertGameActive(game);
+  } catch (error) {
+    return { error: permissionMessage(error) ?? "You cannot submit this vote." };
   }
-  if (game.is_paused) {
-    return { error: "The game is paused by the host." };
-  }
-
   // The active phase must be voting.
   const { data: phase } = await supabase
     .from("game_phases")
@@ -1137,19 +1271,19 @@ export async function submitVote(
     .order("phase_number", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (!phase || phase.phase_type !== "voting") {
-    return { error: "You can only vote during the voting phase." };
-  }
-
-  // The voter must be a living member of this game.
+  // The voter must be a living member of this game and voting must be open.
   const { data: me } = await supabase
     .from("game_players")
     .select("id, status")
     .eq("game_id", gameId)
     .eq("user_id", user.id)
     .maybeSingle();
-  if (!me) return { error: "You are not in this game." };
-  if (me.status !== "alive") return { error: "Dead players cannot vote." };
+  try {
+    assertCanVote(me, phase?.phase_type ?? null);
+  } catch (error) {
+    return { error: permissionMessage(error) ?? "You cannot submit this vote." };
+  }
+  if (!phase) return { error: "This action is only available during voting." };
 
   // "abstain" / empty selection means a null target (no one).
   const targetId =
@@ -1549,6 +1683,18 @@ export async function leaveGame(formData: FormData): Promise<void> {
   const gameId = formData.get("game_id");
   if (typeof gameId !== "string") return;
 
+  const { data: membership } = await supabase
+    .from("game_players")
+    .select("user_id, status")
+    .eq("game_id", gameId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  try {
+    assertPlayerInGame(membership);
+  } catch {
+    redirect("/dashboard");
+  }
+
   const { data: game } = await supabase
     .from("games")
     .select("host_id, status")
@@ -1605,11 +1751,36 @@ export async function sendChatMessage(
 
   const { data: me } = await supabase
     .from("game_players")
-    .select("id")
+    .select("id, user_id, status, is_host, is_muted")
     .eq("game_id", gameId)
     .eq("user_id", user.id)
     .maybeSingle();
-  if (!me) return { error: "You are not in this game." };
+  const [{ data: room }, { data: roleRow }] = await Promise.all([
+    supabase
+      .from("chat_rooms")
+      .select("type")
+      .eq("id", roomId)
+      .eq("game_id", gameId)
+      .maybeSingle(),
+    supabase
+      .from("game_player_roles")
+      .select("alignment")
+      .eq("game_id", gameId)
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
+  try {
+    assertCanAccessChatRoom({
+      player: me,
+      roomType: room?.type ?? "system",
+      alignment: roleRow?.alignment,
+      forPosting: true,
+    });
+    if (!room) throw new Error("room");
+  } catch {
+    return { error: "You can't send messages in this chat." };
+  }
+  if (!me) return { error: "You can't send messages in this chat." };
 
   const { error } = await supabase.from("chat_messages").insert({
     game_id: gameId,
@@ -1646,7 +1817,9 @@ export async function toggleMute(formData: FormData): Promise<void> {
     .select("host_id")
     .eq("id", gameId)
     .maybeSingle();
-  if (!game || game.host_id !== user.id) {
+  try {
+    assertHost(game, user.id);
+  } catch {
     redirect(`/games/${gameId}`);
   }
 
@@ -1698,10 +1871,14 @@ export async function setGamePause(formData: FormData): Promise<void> {
 
   const { data: game } = await supabase
     .from("games")
-    .select("id, host_id, status")
+    .select("id, host_id, status, is_paused")
     .eq("id", gameId)
     .maybeSingle();
-  if (!game || game.host_id !== user.id || game.status !== "in_progress") {
+  try {
+    assertHost(game, user.id);
+    // Resuming intentionally permits the paused state.
+    assertGameActive(game, { allowPaused: !pause });
+  } catch {
     redirect(`/games/${gameId}`);
   }
 
@@ -1767,7 +1944,10 @@ export async function endGameByHost(formData: FormData): Promise<void> {
     .select("id, host_id, status")
     .eq("id", gameId)
     .maybeSingle();
-  if (!game || game.host_id !== user.id || game.status !== "in_progress") {
+  try {
+    assertHost(game, user.id);
+    assertGameActive(game, { allowPaused: true });
+  } catch {
     redirect(`/games/${gameId}`);
   }
 
