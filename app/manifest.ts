@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Mafia",
-    short_name: "Mafia",
+    name: "Mafia Minds",
+    short_name: "Mafia Minds",
     description: "The classic game of deception, online.",
     start_url: "/",
     display: "standalone",

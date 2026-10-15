@@ -13,14 +13,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mafia",
+  title: "Mafia Minds",
   description: "The classic game of deception, online.",
-  applicationName: "Mafia",
+  applicationName: "Mafia Minds",
   // Makes the Home Screen PWA run standalone on iOS, which is required for
   // Web Push to be delivered (iOS 16.4+).
   appleWebApp: {
     capable: true,
-    title: "Mafia",
+    title: "Mafia Minds",
     statusBarStyle: "black-translucent",
   },
   icons: {
