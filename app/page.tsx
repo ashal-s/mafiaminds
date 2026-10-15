@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { MafiaLogo } from "@/components/mafia-logo";
@@ -11,9 +12,32 @@ export default async function Home() {
   }
 
   return (
+<<<<<<< HEAD
     <div className="flex flex-1 flex-col items-center justify-center bg-transparent px-4 text-center text-zinc-100">
       <main className="flex max-w-xl flex-col items-center gap-6">
         <MafiaLogo size="xl" />
+=======
+    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden bg-black px-4 text-center text-zinc-100">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_78%,rgba(220,38,38,0.12),transparent_42%)]"
+      />
+      <main className="relative z-10 flex max-w-xl flex-col items-center gap-6">
+        <div className="flex flex-col items-center gap-4">
+          <Image
+            src="/logo.svg"
+            alt="Mafia Minds"
+            width={192}
+            height={192}
+            priority
+            unoptimized
+            className="h-48 w-48"
+          />
+          <span className="text-5xl font-bold tracking-tight text-red-500">
+            Mafia Minds
+          </span>
+        </div>
+>>>>>>> 0399c4a (added logo on the homepage)
         <h1 className="text-3xl font-semibold leading-tight text-zinc-50 sm:text-4xl">
           The classic game of deception, online.
         </h1>
