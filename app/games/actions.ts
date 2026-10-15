@@ -22,6 +22,7 @@ import {
   type PhaseType,
 } from "@/lib/game-engine";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import {
   assertAuthenticated,
   assertCanAccessChatRoom,
   assertCanVote,
@@ -49,11 +50,13 @@ function generateInviteCode(): string {
 }
 
 // Phase cycle: night → discussion → voting → results → (next day) night.
+// One in-game day ≈ 24 real hours (night is overnight, day runs daytime).
+const HOUR = 60 * 60;
 const PHASE_DURATIONS_SECONDS: Record<PhaseType, number> = {
-  night: 60,
-  discussion: 120,
-  voting: 60,
-  results: 30,
+  night: 8 * HOUR,
+  discussion: 12 * HOUR,
+  voting: 3 * HOUR,
+  results: 1 * HOUR,
 };
 
 
@@ -502,6 +505,8 @@ export async function joinGameById(formData: FormData): Promise<void> {
       redirect(`/join/${code}?error=${encodeURIComponent(joinLimit.message)}`);
     }
     redirect("/dashboard");
+  }
+
   const { data: game } = await supabase
     .from("games")
     .select("status")

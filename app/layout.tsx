@@ -13,20 +13,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mafia",
+  title: "Mafia Minds",
   description: "The classic game of deception, online.",
-  applicationName: "Mafia",
+  applicationName: "Mafia Minds",
   // Makes the Home Screen PWA run standalone on iOS, which is required for
   // Web Push to be delivered (iOS 16.4+).
   appleWebApp: {
     capable: true,
-    title: "Mafia",
+    title: "Mafia Minds",
     statusBarStyle: "black-translucent",
   },
-  icons: {
-    icon: "/icon.svg",
-    apple: "/icon.svg",
-  },
+  // Favicon / apple-touch icons come from app/favicon.ico, app/icon.png, and
+  // app/apple-icon.png (Next.js file-based metadata).
 };
 
 export const viewport: Viewport = {
@@ -43,7 +41,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className={`${geistSans.className} flex min-h-full flex-col`}>
+        {children}
+      </body>
     </html>
   );
 }

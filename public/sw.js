@@ -20,8 +20,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "Mafia";
   const options = {
     body: payload.body || "",
-    icon: "/icon.svg",
-    badge: "/icon.svg",
+    icon: "/logo-mark.png",
+    badge: "/logo-mark.png",
     tag: payload.tag || undefined,
     renotify: Boolean(payload.tag),
     data: { url: payload.url || "/" },

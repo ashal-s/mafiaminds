@@ -1,12 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 
 const SIZES = {
-  sm: 32,
+  sm: 40,
   md: 48,
   lg: 64,
-  xl: 80,
+  xl: 192,
 } as const;
 
 export function MafiaLogo({
@@ -19,11 +20,11 @@ export function MafiaLogo({
   className?: string;
 }) {
   const px = SIZES[size];
+  const src = size === "xl" ? "/logo-hero.png" : "/logo-mark.png";
   const image = (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src="/icon.svg"
-      alt="Mafia"
+    <Image
+      src={src}
+      alt="Mafia Minds"
       width={px}
       height={px}
       className={className}
@@ -32,7 +33,11 @@ export function MafiaLogo({
 
   if (href) {
     return (
-      <Link href={href} className="inline-flex shrink-0" aria-label="Mafia home">
+      <Link
+        href={href}
+        className="inline-flex shrink-0"
+        aria-label="Mafia Minds home"
+      >
         {image}
       </Link>
     );

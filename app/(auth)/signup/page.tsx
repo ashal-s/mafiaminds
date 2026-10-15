@@ -14,7 +14,7 @@ export default function SignupPage() {
     <div>
       <h1 className="text-xl font-semibold text-zinc-50">Create your account</h1>
       <p className="mt-1 text-sm text-zinc-400">
-        Sign up to start playing Mafia.
+        Sign up to start playing Mafia Minds.
       </p>
 
       {state.message ? (
