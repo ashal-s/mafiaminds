@@ -37,12 +37,11 @@ export function HomeHero() {
         }`}
       >
         <Image
-          src="/logo.svg"
+          src="/logo-hero.png"
           alt="Mafia Minds"
           width={192}
           height={192}
           priority
-          unoptimized
           className="h-48 w-48"
         />
       </div>

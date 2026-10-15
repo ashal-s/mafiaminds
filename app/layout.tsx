@@ -23,10 +23,8 @@ export const metadata: Metadata = {
     title: "Mafia Minds",
     statusBarStyle: "black-translucent",
   },
-  icons: {
-    icon: [{ url: "/logo.png", type: "image/png" }],
-    apple: [{ url: "/logo.png", type: "image/png" }],
-  },
+  // Favicon / apple-touch icons come from app/favicon.ico, app/icon.png, and
+  // app/apple-icon.png (Next.js file-based metadata).
 };
 
 export const viewport: Viewport = {

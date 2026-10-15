@@ -108,10 +108,10 @@ export default function AboutPage() {
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-zinc-400">
             This is not a one-sitting party game. Mafia Minds runs in real time
-            against the real world. One in-game day lasts about 24 hours. Night
-            is actually night. Day is actually day. Check in when you can, make
-            your move before the phase ends, and live with the consequences
-            until tomorrow.
+            against the real world. One in-game day lasts about 24 hours: night
+            runs overnight, discussion fills the day, then voting and results
+            close the cycle. Check in when you can, make your move before the
+            phase ends, and live with the consequences until tomorrow.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-zinc-400">
             Chat stays open. Roles stay secret. The table keeps going while you

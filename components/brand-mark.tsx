@@ -13,11 +13,10 @@ export function BrandMark({
   const content = (
     <>
       <Image
-        src="/logo.svg"
+        src="/logo-mark.png"
         alt=""
         width={40}
         height={40}
-        unoptimized
         className="h-10 w-10 shrink-0"
       />
       <span className="text-lg font-normal tracking-tight text-red-500">

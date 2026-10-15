@@ -20,13 +20,13 @@ export function MafiaLogo({
   className?: string;
 }) {
   const px = SIZES[size];
+  const src = size === "xl" ? "/logo-hero.png" : "/logo-mark.png";
   const image = (
     <Image
-      src="/logo.png"
+      src={src}
       alt="Mafia Minds"
       width={px}
       height={px}
-      unoptimized
       className={className}
     />
   );
